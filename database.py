@@ -1,179 +1,187 @@
 import sqlite3
-import hashlib
 from datetime import datetime
+import hashlib
 
-DB_NAME = "diabetes_app.db"
+def get_db_connection():
+    conn = sqlite3.connect('diabetes_app.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
 def create_database():
-    conn = sqlite3.connect(DB_NAME)
+    """Buat tabel jika belum ada (TIDAK drop tabel yang sudah ada)."""
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
-            nama_lengkap TEXT,
+            nama TEXT,
             email TEXT,
             role TEXT DEFAULT 'user',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP
         )
     ''')
-    
+
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS prediksi_history (
+        CREATE TABLE IF NOT EXISTS predictions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             username TEXT,
-            usia INTEGER,
+            prediction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            result TEXT,
+            probability REAL,
+            glukosa REAL,
             bmi REAL,
+            usia INTEGER,
+            tekanan_darah REAL,
+            insulin REAL,
+            kulit REAL,
             kehamilan INTEGER,
-            kulit INTEGER,
-            glukosa INTEGER,
-            tekanan_darah INTEGER,
-            insulin INTEGER,
             dpf REAL,
-            hasil TEXT,
-            probabilitas_rendah REAL,
-            probabilitas_tinggi REAL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     ''')
-    
+
+    # Hanya insert admin jika belum ada
+    cursor.execute("SELECT id FROM users WHERE username = 'admin'")
+    if not cursor.fetchone():
+        cursor.execute('''
+            INSERT INTO users (username, password, nama, email, role)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('admin', hash_password('admin123'), 'Administrator', 'admin@diabetes.ai', 'admin'))
+
     conn.commit()
     conn.close()
-    print("Database berhasil dibuat")
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def add_user(username, password, nama_lengkap="", email="", role="user"):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    try:
-        hashed_pw = hash_password(password)
-        cursor.execute('''
-            INSERT INTO users (username, password, nama_lengkap, email, role)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (username, hashed_pw, nama_lengkap, email, role))
-        conn.commit()
-        print(f"User {username} berhasil ditambahkan")
-        return True
-    except sqlite3.IntegrityError:
-        print(f"Username {username} sudah ada")
-        return False
-    finally:
-        conn.close()
 
 def check_login(username, password):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
-    hashed_pw = hash_password(password)
-    cursor.execute('''
-        SELECT id, username, nama_lengkap, email, role FROM users 
-        WHERE username = ? AND password = ?
-    ''', (username, hashed_pw))
-    
+    hashed_pass = hash_password(password)
+    cursor.execute(
+        "SELECT id, username, nama, email, role FROM users WHERE username = ? AND password = ?",
+        (username, hashed_pass)
+    )
     user = cursor.fetchone()
-    
     if user:
-        cursor.execute('''
-            UPDATE users SET last_login = ? WHERE id = ?
-        ''', (datetime.now(), user[0]))
+        cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user[0],))
         conn.commit()
-    
+        result = (user[0], user[1], user[2], user[3], user[4])
+        conn.close()
+        return result
     conn.close()
-    return user
+    return None
 
-def get_user_by_username(username):
-    conn = sqlite3.connect(DB_NAME)
+def add_user(username, password, nama, email, role='user'):
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT id, username, nama_lengkap, email, role, created_at, last_login 
-        FROM users WHERE username = ?
-    ''', (username,))
-    
-    user = cursor.fetchone()
-    conn.close()
-    return user
-
-def save_prediction(user_id, username, data, hasil, proba):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO prediksi_history (
-            user_id, username, usia, bmi, kehamilan, kulit, 
-            glukosa, tekanan_darah, insulin, dpf, 
-            hasil, probabilitas_rendah, probabilitas_tinggi
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        user_id, username,
-        data['usia'], data['bmi'], data['kehamilan'], data['kulit'],
-        data['glukosa'], data['tekanan_darah'], data['insulin'], data['dpf'],
-        hasil, proba[0], proba[1]
-    ))
-    
-    conn.commit()
-    conn.close()
-
-def get_user_history(user_id, limit=10):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT id, created_at, hasil, probabilitas_tinggi, 
-               glukosa, bmi, usia
-        FROM prediksi_history 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC 
-        LIMIT ?
-    ''', (user_id, limit))
-    
-    history = cursor.fetchall()
-    conn.close()
-    return history
+    try:
+        cursor.execute('''
+            INSERT INTO users (username, password, nama, email, role)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (username, hash_password(password), nama, email, role))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
 
 def get_all_users():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT id, username, nama_lengkap, email, role, created_at, last_login 
-        FROM users ORDER BY id
-    ''')
-    
+    cursor.execute('SELECT id, username, nama, email, role, created_at, last_login FROM users ORDER BY id')
     users = cursor.fetchall()
     conn.close()
-    return users
+    return [tuple(u) for u in users]
 
 def delete_user(user_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute('DELETE FROM prediksi_history WHERE user_id = ?', (user_id,))
-    cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
-    
+    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    cursor.execute("DELETE FROM predictions WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
 
-def update_user_role(user_id, role):
-    conn = sqlite3.connect(DB_NAME)
+def save_prediction(user_id, username, data, result, probability):
+    conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute('UPDATE users SET role = ? WHERE id = ?', (role, user_id))
+    # probability adalah array [prob_negatif, prob_positif]
+    prob_value = float(probability[1]) if result == "Positif" else float(probability[0])
+    cursor.execute('''
+        INSERT INTO predictions
+        (user_id, username, result, probability, glukosa, bmi, usia,
+         tekanan_darah, insulin, kulit, kehamilan, dpf)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        user_id, username, result, prob_value,
+        data['glukosa'], data['bmi'], data['usia'],
+        data['tekanan_darah'], data['insulin'], data['kulit'],
+        data['kehamilan'], data['dpf']
+    ))
     conn.commit()
     conn.close()
 
-if __name__ == "__main__":
-    create_database()
-    add_user("admin", "admin123", "Administrator", "admin@diabetes.com", "admin")
-    add_user("dokter", "dokter123", "Dokter Spesialis", "dokter@diabetes.com", "dokter")
-    add_user("pasien", "pasien123", "Pasien Umum", "pasien@diabetes.com", "user")
-    add_user("user", "user123", "Pengguna Biasa", "user@diabetes.com", "user")
-    print("User default berhasil ditambahkan")
+def get_user_history(user_id, limit=50):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, prediction_date, result, probability, glukosa, bmi, usia,
+               tekanan_darah, insulin, kehamilan, kulit, dpf
+        FROM predictions WHERE user_id = ?
+        ORDER BY prediction_date DESC LIMIT ?
+    ''', (user_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [tuple(r) for r in rows]
+
+def get_all_predictions():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, username, prediction_date, result, probability, glukosa, bmi, usia
+        FROM predictions ORDER BY prediction_date DESC
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    return [tuple(r) for r in rows]
+
+def get_statistics():
+    """Bug fix: fetchone() dipanggil sekali per query."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM predictions")
+    total = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM predictions WHERE result = 'Positif'")
+    positif = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM predictions WHERE result = 'Negatif'")
+    negatif = cursor.fetchone()[0]
+
+    conn.close()
+    return total, positif, negatif
+
+def get_monthly_stats():
+    """Ambil data tren 6 bulan terakhir untuk grafik dashboard."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT strftime('%Y-%m', prediction_date) as bulan,
+               COUNT(*) as total,
+               SUM(CASE WHEN result='Positif' THEN 1 ELSE 0 END) as positif,
+               SUM(CASE WHEN result='Negatif' THEN 1 ELSE 0 END) as negatif
+        FROM predictions
+        GROUP BY bulan
+        ORDER BY bulan DESC
+        LIMIT 6
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [tuple(r) for r in reversed(rows)]

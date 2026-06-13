@@ -1,120 +1,61 @@
 import pandas as pd
 import numpy as np
-import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
+import joblib
 
-print("=" * 60)
-print("TRAINING MODEL DETEKSI DIABETES")
-print("=" * 60)
+print("📊 Memuat dataset...")
 
-# Load data
-try:
-    df = pd.read_csv("diabetes.csv")
-    print(f"\nDataset berhasil dimuat: diabetes.csv")
-except:
-    try:
-        df = pd.read_csv("data/diabetes.csv")
-        print(f"\nDataset berhasil dimuat: data/diabetes.csv")
-    except:
-        print("\nFile diabetes.csv tidak ditemukan!")
-        print("Pastikan file diabetes.csv ada di folder yang sama.")
-        exit()
+# Buat dataset sample jika tidak ada file CSV
+import os
+if not os.path.exists('diabetes.csv'):
+    print("⚠️ File diabetes.csv tidak ditemukan, membuat dataset sample...")
+    # Contoh dataset sederhana
+    np.random.seed(42)
+    n_samples = 500
+    data = {
+        'Pregnancies': np.random.randint(0, 17, n_samples),
+        'Glucose': np.random.randint(50, 200, n_samples),
+        'BloodPressure': np.random.randint(60, 140, n_samples),
+        'SkinThickness': np.random.randint(10, 50, n_samples),
+        'Insulin': np.random.randint(0, 200, n_samples),
+        'BMI': np.random.uniform(18, 45, n_samples),
+        'DiabetesPedigreeFunction': np.random.uniform(0.08, 2.5, n_samples),
+        'Age': np.random.randint(21, 90, n_samples),
+        'Outcome': np.random.randint(0, 2, n_samples)
+    }
+    df = pd.DataFrame(data)
+    df.to_csv('diabetes.csv', index=False)
+    print("✅ Dataset sample telah dibuat!")
+else:
+    df = pd.read_csv('diabetes.csv')
 
-print("\n" + "-" * 40)
-print("INFORMASI DATASET")
-print("-" * 40)
-print(f"Total data: {len(df)}")
-print(f"Jumlah fitur: {len(df.columns)-1}")
-print(f"\nPositif Diabetes (1): {len(df[df['Outcome']==1])} ({len(df[df['Outcome']==1])/len(df)*100:.1f}%)")
-print(f"Negatif Diabetes (0): {len(df[df['Outcome']==0])} ({len(df[df['Outcome']==0])/len(df)*100:.1f}%)")
+print(f"📋 Dataset shape: {df.shape}")
+print(f"📈 Kolom: {list(df.columns)}")
 
-print("\nFitur yang tersedia:")
-for i, col in enumerate(df.columns, 1):
-    print(f"  {i}. {col}")
+X = df.drop('Outcome', axis=1)
+y = df['Outcome']
 
-# Persiapan data
-X = df.drop("Outcome", axis=1)
-y = df["Outcome"]
+print("🔄 Scaling fitur...")
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-# Split data dengan stratify agar seimbang
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
+print("🤖 Melatih model KNN...")
+model = KNeighborsClassifier(n_neighbors=7)
+model.fit(X_scaled, y)
 
-# Scaling
-scaler = MinMaxScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+# Evaluasi
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+y_pred = model.predict(X_test)
+akurasi = accuracy_score(y_test, y_pred)
 
-print("\n" + "-" * 40)
-print("MENCARI NILAI K TERBAIK")
-print("-" * 40)
+print(f"✅ Akurasi model: {akurasi*100:.2f}%")
+print(f"\n📊 Classification Report:\n{classification_report(y_test, y_pred)}")
 
-# Cari K terbaik
-best_k = 3
-best_accuracy = 0
+print("💾 Menyimpan model dan scaler...")
+joblib.dump(model, 'model_knn.pkl')
+joblib.dump(scaler, 'scaler.pkl')
 
-for k in range(1, 21):
-    knn = KNeighborsClassifier(n_neighbors=k)
-    knn.fit(X_train_scaled, y_train)
-    y_pred = knn.predict(X_test_scaled)
-    acc = accuracy_score(y_test, y_pred)
-    status = "Terbaik" if acc > best_accuracy else ""
-    print(f"K = {k:2d}: Akurasi = {acc*100:5.2f}% {status}")
-    if acc > best_accuracy:
-        best_accuracy = acc
-        best_k = k
-
-print(f"\nNilai K terbaik: {best_k} dengan akurasi {best_accuracy*100:.2f}%")
-
-# Train model dengan K terbaik
-model = KNeighborsClassifier(n_neighbors=best_k)
-model.fit(X_train_scaled, y_train)
-
-# Evaluasi model
-y_pred = model.predict(X_test_scaled)
-
-print("\n" + "-" * 40)
-print("EVALUASI MODEL")
-print("-" * 40)
-print(f"Akurasi: {accuracy_score(y_test, y_pred)*100:.2f}%")
-print("\nClassification Report:")
-print(classification_report(y_test, y_pred, target_names=['Negatif (0)', 'Positif (1)']))
-
-# Confusion Matrix
-cm = confusion_matrix(y_test, y_pred)
-print("\nConfusion Matrix:")
-print("                 Prediksi")
-print("              Negatif  Positif")
-print(f"Aktual Negatif    {cm[0][0]:3d}      {cm[0][1]:3d}")
-print(f"Aktual Positif    {cm[1][0]:3d}      {cm[1][1]:3d}")
-
-# Simpan model
-joblib.dump(model, "model_knn.pkl")
-joblib.dump(scaler, "scaler.pkl")
-print("\nModel berhasil disimpan sebagai 'model_knn.pkl'")
-print("Scaler berhasil disimpan sebagai 'scaler.pkl'")
-
-# Test dengan sample data
-print("\n" + "-" * 40)
-print("TEST PREDIKSI DENGAN SAMPLE")
-print("-" * 40)
-
-# Sample pasien negatif
-sample_neg = df[df['Outcome']==0].iloc[0]
-pred_neg = model.predict(scaler.transform([sample_neg[:-1].values]))[0]
-print(f"\nSample Pasien NEGATIF:")
-print(f"  Hasil Prediksi: {'NEGATIF' if pred_neg==0 else 'POSITIF'} (Sesuai)")
-
-# Sample pasien positif
-sample_pos = df[df['Outcome']==1].iloc[0]
-pred_pos = model.predict(scaler.transform([sample_pos[:-1].values]))[0]
-print(f"\nSample Pasien POSITIF:")
-print(f"  Hasil Prediksi: {'POSITIF' if pred_pos==1 else 'NEGATIF'} (Sesuai)")
-
-print("\n" + "=" * 60)
-print("TRAINING SELESAI! Silakan jalankan streamlit run app.py")
-print("=" * 60)
+print("✨ Selesai! Model siap digunakan.")
